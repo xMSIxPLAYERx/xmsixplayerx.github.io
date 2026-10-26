@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> Jean Ghanameh| Judo • Robotics • CS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200;300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        /* ============================================
+            1. VARIABLES & RESET
+            ============================================ */
+        :root {
+            --ice-white: #FFFFFF;
+            --ice-blue: #D8EEFF;
+            --deep-slate: #05080E;
+            --frost-border: rgba(255, 255, 255, 0.2);
+            --frost-highlight: rgba(255, 255, 255, 0.45);
+            --glass-bg: rgba(10, 16, 28, 0.45);
+            --glass-shadow: 0 30px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+            --spring-bounce: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            --smooth-ease: cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            width: 100%;
+            background-color: var(--deep-slate);
+            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+            color: var(--ice-white);
+            overflow-x: hidden;
+        }
+
+        /* ============================================
+            2. SNOWY MOUNTAIN DAY BACKGROUND & CANVAS
+            ============================================ */
+        .bg-fixed {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -2;
+            background: linear-gradient(180deg, rgba(10, 16, 28, 0.15) 0%, rgba(5, 8, 14, 0.8) 100%),
+                        url('https://images.unsplash.com/photo-1491557345352-5929e343eb89?auto=format&fit=crop&w=2000&q=80') center/cover no-repeat;
+            filter: brightness(1.05) contrast(1.1);
+        }
+
+        canvas#snowCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* ============================================
+            3. LIQUID GLASS NAVIGATION BAR
+            ============================================ */
+        nav {
+            position: fixed;
+            top: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: min(90%, 1000px);
+            height: 65px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 2rem;
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(40px) saturate(200%);
+            -webkit-backdrop-filter: blur(40px) saturate(200%);
+            border: 1px solid var(--frost-border);
+            border-top: 1px solid var(--frost-highlight);
+            border-radius: 40px;
+            box-shadow: var(--glass-shadow);
+            z-index: 1000;
+        }
+
+        .nav-brand {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 700;
+            font-size: 1.1rem;
+            letter-spacing: 0.1em;
+            color: var(--ice-white);
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .nav-link {
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 0.4rem 1rem;
+            border-radius: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: var(--ice-white);
+            transform: translateY(-2px);
+        }
+
+        /* ============================================
+            4. SECTIONS & SCROLL REVEALS
+            ============================================ */
+        section {
+            min-height: 100vh;
+            padding: 8rem 2rem 4rem 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .glass-box {
+            width: min(90%, 900px);
+            padding: 4rem 3.5rem;
+            background: var(--glass-bg);
+            backdrop-filter: blur(45px) saturate(220%);
+            -webkit-backdrop-filter: blur(45px) saturate(220%);
+            border: 1px solid var(--frost-border);
+            border-top: 1px solid var(--frost-highlight);
+            border-radius: 36px;
+            box-shadow: var(--glass-shadow);
+            text-align: center;
+            
+            /* Initial state for spring reveal animation */
+            opacity: 0;
+            transform: translateY(120px) rotateX(15deg) scale(0.92);
+            transition: transform 1.1s var(--spring-bounce), opacity 0.9s var(--smooth-ease);
+            will-change: transform, opacity;
+        }
+
+        .glass-box.visible {
+            opacity: 0.85;
+            transform: translateY(0) rotateX(0deg) scale(1);
+        }
+
+        /* Typography & Badges */
+        .tag-badge {
+            display: inline-block;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 0.78rem;
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            color: var(--ice-blue);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--frost-border);
+            padding: 0.4rem 1.2rem;
+            border-radius: 30px;
+            margin-bottom: 1.5rem;
+        }
+
+        h1.title-main {
+            font-size: clamp(2.8rem, 7vw, 5.2rem);
+            font-weight: 300;
+            line-height: 1.1;
+            letter-spacing: -0.03em;
+            background: linear-gradient(180deg, #FFFFFF 20%, var(--ice-blue) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.8rem;
+        }
+
+        h2.subtitle {
+            font-size: clamp(1rem, 2.5vw, 1.5rem);
+            font-weight: 400;
+            color: var(--ice-blue);
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            margin-bottom: 1.5rem;
+        }
+
+        p.body-text {
+            font-size: clamp(0.95rem, 1.8vw, 1.15rem);
+            line-height: 1.8;
+            color: rgba(255, 255, 255, 0.82);
+            max-width: 650px;
+            margin: 0 auto;
+            font-weight: 300;
+        }
+
+        /* Passions Grid Cards (Judo Centered) */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            margin-top: 2.5rem;
+            text-align: left;
+        }
+
+        .sub-card {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--frost-border);
+            border-top: 1px solid var(--frost-highlight);
+            border-radius: 22px;
+            padding: 2rem 1.5rem;
+            backdrop-filter: blur(20px);
+            transition: transform 0.4s var(--spring-bounce), background 0.3s ease, border-color 0.3s ease;
+        }
+
+        .sub-card.featured {
+            background: rgba(216, 238, 255, 0.08);
+            border-color: rgba(216, 238, 255, 0.4);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .sub-card:hover {
+            transform: translateY(-10px) scale(1.03);
+            background: rgba(255, 255, 255, 0.12);
+            border-color: var(--ice-blue);
+        }
+
+        .sub-card h4 {
+            font-size: 1.25rem;
+            margin-bottom: 0.6rem;
+            color: var(--ice-white);
+            font-weight: 500;
+        }
+
+        .sub-card p {
+            font-size: 0.9rem;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.75);
+        }
+
+        /* GitHub Image Gallery Placeholders */
+        .image-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2.5rem;
+        }
+
+        .glass-image-wrapper {
+            position: relative;
+            border-radius: 24px;
+            overflow: hidden;
+            border: 1px solid var(--frost-border);
+            border-top: 1px solid var(--frost-highlight);
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            aspect-ratio: 4 / 3;
+            transition: transform 0.4s var(--spring-bounce), border-color 0.3s ease;
+        }
+
+        .glass-image-wrapper:hover {
+            transform: translateY(-8px) scale(1.02);
+            border-color: var(--ice-blue);
+        }
+
+        .glass-image-wrapper img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            transition: transform 0.5s ease;
+        }
+
+        .glass-image-wrapper:hover img {
+            transform: scale(1.08);
+        }
+
+        .image-caption {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(180deg, transparent 0%, rgba(5, 8, 14, 0.85) 100%);
+            font-size: 0.85rem;
+            color: var(--ice-white);
+            text-align: center;
+        }
+
+        @media (max-width: 850px) {
+            nav { padding: 0 1rem; }
+            .nav-links { display: none; }
+            .glass-box { padding: 2.5rem 1.5rem; width: 92vw; }
+            .cards-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Fixed Snowy Mountain Background -->
+    <div class="bg-fixed"></div>
+
+    <!-- Snow Particle Canvas -->
+    <canvas id="snowCanvas"></canvas>
+
+    <!-- Liquid Glass Navigation -->
+    <nav>
+        <a href="#home" class="nav-brand">GJ // 2026</a>
+        <div class="nav-links">
+            <a href="#about" class="nav-link">About</a>
+            <a href="#passions" class="nav-link">Passions</a>
+            <a href="#judo" class="nav-link">RB & MC</a>
+            <a href="#media" class="nav-link">Gallery</a>
+            <a href="#contact" class="nav-link">Contact</a>
+        </div>
+    </nav>
+
+    <!-- Section 1: Hero -->
+    <section id="home">
+        <div class="glass-box">
+            <span class="tag-badge">Born Dec 17, 2011 • Age 14</span>
+            <h1 class="title-main">Jean Ghanameh</h1>
+            <h2 class="subtitle">Judo • Robotics • Computer Science</h2>
+            <p class="body-text">
+                Welcome to my interactive portfolio. Scroll down to explore my training, hardware builds, and software development.
+            </p>
+        </div>
+    </section>
+
+    <!-- Section 2: About -->
+    <section id="about">
+        <div class="glass-box">
+            <span class="tag-badge">// 01. Identity</span>
+            <h1 class="title-main">The Visionary</h1>
+            <p class="body-text">
+                Driven by curiosity and precision. Whether I am architecting modular software algorithms, wiring autonomous robotic rigs, or training on the judo mat, I push every project to its absolute physical and logical limit.
+            </p>
+        </div>
+    </section>
+
+    <!-- Section 3: Passions Grid (Judo Centered) -->
+    <section id="passions">
+        <div class="glass-box">
+            <span class="tag-badge">// 02. Disciplines</span>
+            <h1 class="title-main">Core Focus</h1>
+            <div class="cards-grid">
+                <!-- Left: Robotics -->
+                <div class="sub-card">
+                    <h4>🤖 Robotics</h4>
+                    <p>Designing physical hardware, microcontrollers, and motion control logic for autonomous systems.</p>
+                </div>
+
+                <!-- CENTERED: Judo (Highlighted) -->
+                <div class="sub-card featured">
+                    <h4>🥋 Judo</h4>
+                    <p>Mastering momentum, leverage, timing, and razor-sharp resilience under intense competitive environments.</p>
+                </div>
+
+                <!-- Right: CS & Logic -->
+                <div class="sub-card">
+                    <h4>💻 CS & Logic</h4>
+                    <p>Writing clean, optimized code and architecting scalable algorithms for complex applications.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 4: Robotics Dedicated Feature -->
+    <section id="judo">
+        <div class="glass-box">
+            <span class="tag-badge">// 03. Coding and Executing</span>
+            <h1 class="title-main">Robotics and Mechatronics</h1>
+            <p class="body-text">
+                Robotics and Mechatronics are a essential part of our new technologically advanced world. Learning and praticing is only part of the beginning.
+            </p>
+        </div>
+    </section>
+
+    <!-- Section 5: Media & GitHub Image Gallery -->
+    <section id="media">
+        <div class="glass-box">
+            <span class="tag-badge">// 04. Media & Projects</span>
+            <h1 class="title-main">Visual Showcase</h1>
+            <p class="body-text">
+                Add your own images from your GitHub repository folder (e.g. <code>images/judo.jpg</code>).
+            </p>
+
+            <div class="image-gallery">
+                <!-- Image Slot 1: Judo -->
+                <div class="glass-image-wrapper">
+                    <!-- Change 'src' to your real picture path in your repo -->
+                    <img src="https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80" alt="Judo Training">
+                    <div class="image-caption">Judo Training / Competition</div>
+                </div>
+
+                <!-- Image Slot 2: Robotics -->
+                <div class="glass-image-wrapper">
+                    <img src="https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=800&q=80" alt="Robotics Build">
+                    <div class="image-caption">Robotics Hardware Build</div>
+                </div>
+
+                <!-- Image Slot 3: Computer Science -->
+                <div class="glass-image-wrapper">
+                    <img src="https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80" alt="Software Workspace">
+                    <div class="image-caption">Software Architecture & Code</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 6: Contact -->
+    <section id="contact">
+        <div class="glass-box">
+            <span class="tag-badge">// 05. Direct Channel</span>
+            <h1 class="title-main">Initiate Contact</h1>
+            <p class="body-text" style="margin-bottom: 1.5rem;">
+                Ready to collaborate on a software project, build custom robotics hardware?
+            </p>
+            <div style="font-family: 'Space Grotesk', sans-serif; font-size: 1.15rem; color: var(--ice-blue); font-weight: 500;">
+              Email: ghanameh.jean@hotmail.com
+              <p>
+              Phone: +961 76 431 511
+            </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Scroll Reveal & Snowfall Script -->
+    <script>
+        // --- 1. Intersection Observer for Scroll Reveals ---
+        const observerOptions = { threshold: 0.2 };
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.glass-box').forEach((box) => {
+            observer.observe(box);
+        });
+
+        // --- 2. Snowfall Canvas Engine ---
+        const canvas = document.getElementById('snowCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+
+        const particles = Array.from({ length: 80 }, () => ({
+            x: Math.random() * width,
+            y: Math.random() * height,
+            r: Math.random() * 2.5 + 0.8,
+            d: Math.random() * 1.5 + 0.5,
+            opacity: Math.random() * 0.7 + 0.2
+        }));
+
+        function drawSnow() {
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+
+            particles.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                ctx.globalAlpha = p.opacity;
+                ctx.fill();
+
+                p.y += p.d;
+                p.x += Math.sin(p.y / 30) * 0.6;
+
+                if (p.y > height) {
+                    p.y = -10;
+                    p.x = Math.random() * width;
+                }
+            });
+
+            requestAnimationFrame(drawSnow);
+        }
+
+        drawSnow();
+    </script>
+</body>
+</html>

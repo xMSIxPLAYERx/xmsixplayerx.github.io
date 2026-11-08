@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>World Flight Simulator — Beirut</title>
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Cesium.js"></script>
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.123/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+<style>
+html,body,#v{margin:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:system-ui,sans-serif;touch-action:none}
+.hud{position:absolute;color:#e8f4ff;text-shadow:0 1px 3px #000;pointer-events:none;z-index:5}
+#info{top:10px;left:10px;background:#0008;padding:10px 14px;border-radius:10px;font:600 14px/1.5 ui-monospace,monospace}
+#help{bottom:10px;left:10px;background:#0007;padding:8px 12px;border-radius:8px;font-size:12px;max-width:340px}
+#btns{position:absolute;top:10px;right:10px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;z-index:6;max-width:60vw}
+button{background:#0b1e33cc;color:#fff;border:1px solid #4a90d9;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer}
+button.on{background:#2a6fb5}
+#stick{position:absolute;left:24px;bottom:24px;width:140px;height:140px;border-radius:50%;background:#fff2;border:2px solid #fff5;display:none;z-index:6}
+#knob{position:absolute;left:45px;top:45px;width:50px;height:50px;border-radius:50%;background:#fffa}
+#thr{position:absolute;right:24px;bottom:24px;width:60px;height:180px;border-radius:12px;background:#fff2;border:2px solid #fff5;display:none;z-index:6}
+#thrfill{position:absolute;bottom:0;width:100%;background:#4a90d9aa;border-radius:10px}
+#msg{top:50%;left:50%;transform:translate(-50%,-50%);font-size:28px;font-weight:700;background:#000a;padding:14px 24px;border-radius:12px;display:none}
+.touch #help{display:none}.touch #stick,.touch #thr{display:block}
+</style>
+</head>
+<body>
+<div id="v"></div>
+<div id="info" class="hud">Loading world…</div>
+<div id="help" class="hud">W/S or ↑/↓ pitch · A/D or ←/→ roll · Q/E rudder · Shift/Ctrl throttle · G gear · B brakes · C camera · M map · R reset · Gamepad supported</div>
+<div id="btns">
+  <button id="bCam">Camera: Chase</button><button id="bMap">Map</button><button id="bGear" class="on">Gear: Down</button>
+  <button id="bBrake">Brakes</button><button id="bTilt" style="display:none">Tilt steer</button><button id="bReset">Restart</button>
+</div>
+<div id="stick"><div id="knob"></div></div>
+<div id="thr"><div id="thrfill"></div></div>
+<div id="msg" class="hud"></div>
+<script>
+const C = Cesium; let msgT=0;
+const msgEl=document.getElementById("msg"), info=document.getElementById("info");
+// Beirut–Rafic Hariri International (OLBA), runway 17 threshold
+const START = {lon:35.4935, lat:33.8345, alt:26, hdg:172};
+const MODEL_URL = "https://raw.githubusercontent.com/CesiumGS/cesium/main/Apps/SampleData/models/CesiumAir/Cesium_Air.glb";
+
+const viewer = new C.Viewer("v", {
+  baseLayer: new C.ImageryLayer(new C.UrlTemplateImageryProvider({
+    url:"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    maximumLevel:19, credit:"Imagery © Esri, Maxar, Earthstar Geographics"})),
+  baseLayerPicker:false, geocoder:false, homeButton:false, sceneModePicker:false, navigationHelpButton:false,
+  animation:false, timeline:false, fullscreenButton:false, infoBox:false, selectionIndicator:false,
+  terrainProvider:new C.EllipsoidTerrainProvider(), shouldAnimate:true
+});
+// Real place names, roads and borders on top of the satellite imagery
+viewer.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({
+  url:"https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", maximumLevel:19}));
+viewer.imageryLayers.addImageryProvider(new C.UrlTemplateImageryProvider({
+  url:"https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}", maximumLevel:19})).alpha=0.6;
+
+const scene = viewer.scene;
+scene.globe.enableLighting = true;
+scene.skyAtmosphere.show = true;
+scene.fog.enabled = true; scene.fog.density = 1.2e-4;
+scene.globe.showGroundAtmosphere = true;
+scene.highDynamicRange = true;
+scene.postProcessStages.fxaa.enabled = true;
+viewer.clock.currentTime = C.JulianDate.fromDate(new Date(new Date().setUTCHours(10,0,0,0)));
+viewer.clock.multiplier = 1;
+
+// ---------- Plane state ----------
+const P = {};
+function reset(){
+  Object.assign(P,{lon:START.lon,lat:START.lat,alt:START.alt,hdg:START.hdg,pitch:0,roll:0,
+    speed:0,vs:0,thr:0,gear:true,brake:false,onGround:true,crashed:false});
+  msg("");
+}
+reset();
+const GROUND = 26; // airport elevation-ish (flat world surface + model offset)
+const posNow = () => C.Cartesian3.fromDegrees(P.lon,P.lat,P.alt);
+const hprNow = () => new C.HeadingPitchRoll(C.Math.toRadians(P.hdg-90), C.Math.toRadians(P.pitch), C.Math.toRadians(P.roll));
+
+const plane = viewer.entities.add({
+  position:new C.CallbackProperty(posNow,false),
+  orientation:new C.CallbackProperty(()=>C.Transforms.headingPitchRollQuaternion(posNow(),hprNow()),false),
+  model:{uri:MODEL_URL, minimumPixelSize:48, scale:2.2, runAnimations:true,
+    silhouetteColor:C.Color.BLACK.withAlpha(0.3), silhouetteSize:0.5}
+});
+
+// ---------- Input ----------
+const keys = {};
+addEventListener("keydown",e=>{keys[e.code]=true;
+  if(e.code==="KeyC")cycleCam(); if(e.code==="KeyM")toggleMap(); if(e.code==="KeyG")toggleGear();
+  if(e.code==="KeyB")toggleBrake(); if(e.code==="KeyR")reset();});
+addEventListener("keyup",e=>keys[e.code]=false);
+
+const isTouch = matchMedia("(pointer:coarse)").matches || "ontouchstart" in window;
+if(isTouch){document.body.classList.add("touch"); bTilt.style.display="";}
+const stickIn={x:0,y:0}; let tilt=false, tiltIn={x:0,y:0};
+(function(){ // virtual joystick
+  let id=null; const r=()=>stick.getBoundingClientRect();
+  const mv=e=>{for(const t of e.changedTouches){if(t.identifier!==id)continue;const b=r();
+    let x=(t.clientX-b.left-70)/70,y=(t.clientY-b.top-70)/70;const m=Math.hypot(x,y);if(m>1){x/=m;y/=m;}
+    stickIn.x=x;stickIn.y=y;knob.style.left=45+x*45+"px";knob.style.top=45+y*45+"px";}e.preventDefault();};
+  stick.addEventListener("touchstart",e=>{id=e.changedTouches[0].identifier;mv(e);},{passive:false});
+  stick.addEventListener("touchmove",mv,{passive:false});
+  stick.addEventListener("touchend",()=>{id=null;stickIn.x=stickIn.y=0;knob.style.left=knob.style.top="45px";});
+  const tm=e=>{const b=thr.getBoundingClientRect();P.thr=Math.min(1,Math.max(0,1-(e.touches[0].clientY-b.top)/b.height));e.preventDefault();};
+  thr.addEventListener("touchstart",tm,{passive:false}); thr.addEventListener("touchmove",tm,{passive:false});
+})();
+bTilt.onclick=async()=>{
+  if(!tilt && typeof DeviceOrientationEvent!=="undefined" && DeviceOrientationEvent.requestPermission){
+    try{ if(await DeviceOrientationEvent.requestPermission()!=="granted")return; }catch{return;} }
+  tilt=!tilt; bTilt.classList.toggle("on",tilt);
+};
+addEventListener("deviceorientation",e=>{ if(!tilt)return;
+  const land = Math.abs(screen.orientation?.angle ?? window.orientation ?? 0)===90;
+  const a = land ? e.beta : e.gamma, b = land ? -(e.gamma+45) : (e.beta-45);
+  tiltIn.x=Math.max(-1,Math.min(1,(a||0)/30)); tiltIn.y=Math.max(-1,Math.min(1,(b||0)/30)); });
+
+function readInput(){
+  let pitch=0,roll=0,yaw=0;
+  if(keys.KeyW||keys.ArrowUp)pitch-=1; if(keys.KeyS||keys.ArrowDown)pitch+=1;
+  if(keys.KeyA||keys.ArrowLeft)roll-=1; if(keys.KeyD||keys.ArrowRight)roll+=1;
+  if(keys.KeyQ)yaw-=1; if(keys.KeyE)yaw+=1;
+  if(keys.ShiftLeft||keys.ShiftRight||keys.Equal)P.thr=Math.min(1,P.thr+0.01);
+  if(keys.ControlLeft||keys.ControlRight||keys.Minus)P.thr=Math.max(0,P.thr-0.01);
+  pitch+=stickIn.y; roll+=stickIn.x;
+  if(tilt){pitch+=tiltIn.y; roll+=tiltIn.x;}
+  const gp=navigator.getGamepads?.()[0];
+  if(gp){const dz=v=>Math.abs(v)<0.12?0:v; roll+=dz(gp.axes[0]); pitch+=dz(gp.axes[1]); yaw+=dz(gp.axes[2]||0);
+    if(gp.buttons[7])P.thr=Math.max(P.thr,gp.buttons[7].value); if(gp.buttons[6]?.pressed)P.thr=Math.max(0,P.thr-0.01);}
+  return {pitch:Math.max(-1,Math.min(1,pitch)),roll:Math.max(-1,Math.min(1,roll)),yaw};
+}
+
+// ---------- Flight model (simple arcade physics) ----------
+const MAXT=14, DRAG=0.0009, ROT_SPEED=55, STALL=45, R=6378137;
+let last=performance.now();
+function step(){
+  const now=performance.now(); const dt=Math.min((now-last)/1000,0.05); last=now;
+  if(P.crashed)return;
+  const inp=readInput();
+  // speed
+  const gearDrag = P.gear?0.0004:0;
+  let acc = P.thr*MAXT - (DRAG+gearDrag)*P.speed*P.speed - 9.8*Math.sin(C.Math.toRadians(P.pitch));
+  if(P.onGround) acc -= (P.brake?6:0.4)*(P.speed>0.5?1:0);
+  P.speed=Math.max(0,P.speed+acc*dt);
+  const ctrl=Math.min(1,P.speed/60);
+  if(P.onGround){
+    P.roll*=Math.exp(-6*dt);
+    P.hdg += (inp.yaw+inp.roll*0.6)*20*dt*Math.min(1,P.speed/10);
+    if(P.speed>ROT_SPEED) P.pitch=Math.max(0,Math.min(15,P.pitch - inp.pitch*12*dt));
+    else P.pitch*=Math.exp(-3*dt);
+  } else {
+    P.roll = Math.max(-80,Math.min(80,P.roll + inp.roll*70*ctrl*dt));
+    if(Math.abs(inp.roll)<0.05) P.roll*=Math.exp(-0.6*dt);
+    P.pitch = Math.max(-60,Math.min(60,P.pitch - inp.pitch*35*ctrl*dt));
+    P.hdg += (Math.tan(C.Math.toRadians(P.roll))*9.8/Math.max(P.speed,20))*57.3*dt + inp.yaw*8*dt;
+    if(P.speed<STALL) P.pitch -= (STALL-P.speed)*0.6*dt; // stall: nose drops
+  }
+  P.hdg=(P.hdg+360)%360;
+  // move
+  const p=C.Math.toRadians(P.pitch), h=C.Math.toRadians(P.hdg);
+  const d=P.speed*dt;
+  let climb=d*Math.sin(p);
+  const lift = Math.min(1,(P.speed/STALL)**2);
+  if(!P.onGround) climb -= (1-lift)*9.8*dt*3;
+  const horiz=d*Math.cos(p);
+  P.lat += C.Math.toDegrees(horiz*Math.cos(h)/R);
+  P.lon += C.Math.toDegrees(horiz*Math.sin(h)/(R*Math.cos(C.Math.toRadians(P.lat))));
+  P.alt += climb; P.vs = climb/dt;
+  // ground contact
+  if(P.alt<=GROUND){
+    if(!P.onGround){
+      if(P.vs<-8 || !P.gear || Math.abs(P.roll)>20 || P.pitch<-5){crash();return;}
+      P.onGround=true; msg("Touchdown!",1500);
+    }
+    P.alt=GROUND; if(P.pitch<0)P.pitch=0;
+  } else if(P.alt>GROUND+0.5) P.onGround=false;
+}
+function crash(){P.crashed=true;P.speed=0;msg("CRASH — press R / Restart");}
+function msg(t,ms){msgEl.textContent=t;msgEl.style.display=t?"block":"none";clearTimeout(msgT);if(ms)msgT=setTimeout(()=>msgEl.style.display="none",ms);}
+
+
+// ---------- Cameras ----------
+let camMode=0, mapMode=false; const CAMS=["Chase","Cockpit","Side","Orbit"];
+let orbitAng=0;
+function cycleCam(){camMode=(camMode+1)%CAMS.length;bCam.textContent="Camera: "+CAMS[camMode];}
+function toggleMap(){
+  mapMode=!mapMode; bMap.classList.toggle("on",mapMode); bMap.textContent=mapMode?"Back to plane":"Map";
+  const c=scene.screenSpaceCameraController;
+  viewer.camera.lookAtTransform(C.Matrix4.IDENTITY);
+  if(mapMode){ c.enableInputs=true;
+    viewer.camera.flyTo({destination:C.Cartesian3.fromDegrees(P.lon,P.lat,2.2e7),duration:2}); }
+}
+function toggleGear(){ if(P.onGround){msg("Can't raise gear on the ground",1200);return;}
+  P.gear=!P.gear; bGear.classList.toggle("on",P.gear); bGear.textContent="Gear: "+(P.gear?"Down":"Up"); }
+function toggleBrake(){P.brake=!P.brake;bBrake.classList.toggle("on",P.brake);}
+bCam.onclick=cycleCam;bMap.onclick=toggleMap;bGear.onclick=toggleGear;bBrake.onclick=toggleBrake;bReset.onclick=()=>{reset();bGear.classList.add("on");bGear.textContent="Gear: Down";};
+
+function updateCamera(){
+  if(mapMode)return;
+  scene.screenSpaceCameraController.enableInputs = camMode===3;
+  const pos=posNow(), h=C.Math.toRadians(P.hdg);
+  if(camMode===1){
+    const enu=C.Transforms.headingPitchRollToFixedFrame(pos,hprNow());
+    const eye=C.Matrix4.multiplyByPoint(enu,new C.Cartesian3(3.2,0,1.4),new C.Cartesian3());
+    viewer.camera.lookAtTransform(C.Matrix4.IDENTITY);
+    viewer.camera.setView({destination:eye,orientation:{heading:h,pitch:C.Math.toRadians(P.pitch),roll:C.Math.toRadians(P.roll)}});
+  } else if(camMode===3){
+    if(!updateCamera.o){updateCamera.o=true;viewer.camera.lookAt(pos,new C.HeadingPitchRange(h,-0.3,90));}
+    const tr=C.Transforms.eastNorthUpToFixedFrame(pos); viewer.camera.lookAtTransform(tr);
+    return;
+  } else {
+    const off = camMode===0 ? new C.HeadingPitchRange(h,C.Math.toRadians(-12),55) : new C.HeadingPitchRange(h+Math.PI/2,C.Math.toRadians(-5),45);
+    viewer.camera.lookAt(pos,off);
+  }
+  updateCamera.o=false;
+}
+
+// ---------- Nearby place name (online, OpenStreetMap) ----------
+let place="Beirut–Rafic Hariri Intl (OLBA)", lastGeo=0;
+async function geocode(){
+  try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&lat=${P.lat}&lon=${P.lon}`,{headers:{"Accept-Language":"en"}});
+    const j=await r.json(); place=j.address?(j.address.city||j.address.town||j.address.county||j.address.state||"")+(j.address.country?", "+j.address.country:""):"Over the sea";
+  }catch{}
+}
+setInterval(()=>{if(performance.now()-lastGeo>15000){lastGeo=performance.now();geocode();}},3000);
+
+viewer.scene.preUpdate.addEventListener(()=>{ step(); updateCamera();
+  info.innerHTML=`SPD ${(P.speed*1.944).toFixed(0)} kt · ALT ${((P.alt-GROUND)*3.281).toFixed(0)} ft<br>HDG ${P.hdg.toFixed(0)}° · V/S ${(P.vs*196.9).toFixed(0)} fpm<br>THR ${(P.thr*100).toFixed(0)}% · ${P.gear?"Gear ⬇":"Gear ⬆"}${P.brake?" · BRK":""}${P.speed<STALL&&!P.onGround?" · <span style='color:#f66'>STALL</span>":""}<br>📍 ${place}`;
+  thrfill.style.height=(P.thr*100)+"%";
+});
+
+document.body.dataset.ready="1";
+</script>
+</body>
+</html>
